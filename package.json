@@ -1,0 +1,16 @@
+{
+  "name": "stellar-forge",
+  "version": "1.0.0",
+  "description": "世界顶级 Transformer 锻造厂：单文件、零依赖、可独立验证的 Transformer 实现（晨星）",
+  "main": "transformer-forge.html",
+  "scripts": {
+    "verify": "node verify.js"
+  },
+  "keywords": ["transformer", "attention", "deep-learning", "autodiff", "gradient-check", "ai", "forge"],
+  "author": "晨星 (CJX0712)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CJX0712/stellar-forge.git"
+  }
+}

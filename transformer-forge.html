@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>stellar-forge · 世界顶级 Transformer 锻造厂</title>
+<style>
+  :root{ --bg:#0c0f17; --panel:#141a26; --panel2:#1b2233; --ink:#e6ecf5; --muted:#93a1b5;
+         --acc:#5b8cff; --acc2:#36d399; --bad:#ff6b6b; --line:#232c3f; }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0a0d14,#0c0f17);color:var(--ink);
+       font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 20px 60px;}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.5px}
+  h1 .star{color:var(--acc2)}
+  .sub{color:var(--muted);margin:0 0 22px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}
+  .panel h2{margin:0 0 12px;font-size:16px;color:#cdd8ea}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  button{background:var(--acc);color:#06101f;border:0;border-radius:10px;padding:10px 16px;
+         font-weight:700;cursor:pointer;font-size:14px}
+  button.alt{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+  button:disabled{opacity:.5;cursor:default}
+  pre{background:#0a0e16;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;
+      font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#bfe0c9;max-height:320px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600}
+  .ok{color:var(--acc2);font-weight:700}
+  .no{color:var(--bad);font-weight:700}
+  canvas{background:#0a0e16;border:1px solid var(--line);border-radius:10px;display:block;max-width:100%}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--panel2);
+         border:1px solid var(--line);color:var(--muted);font-size:12px;margin-right:6px}
+  .meta{color:var(--muted);font-size:12px}
+  code{background:#0a0e16;padding:1px 6px;border-radius:6px;color:#9fd0ff}
+  a{color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="star">✦</span> stellar-forge <span class="badge">Transformer</span><span class="badge">零依赖</span><span class="badge">可独立验证</span></h1>
+  <p class="sub">晨星 · 锻造世界顶级 AI。复用 Vaswani 2017 / Ba 2016 LayerNorm / Kingma 2015 Adam / Hendrycks 2016 GELU 等顶级算法原典，手写逆推梯度并与数值梯度交叉验证。</p>
+
+  <div class="panel">
+    <h2>运行环境</h2>
+    <div class="row">
+      <button id="btnTest">运行自检套件（8/8 硬不变量）</button>
+      <button id="btnTrain" class="alt">训练演示（+1 任务 + 注意力热力图）</button>
+      <span class="meta">单文件 · 内联 CSS/JS · 零外部依赖 · 浏览器 / headless Node 双入口</span>
+    </div>
+    <div id="testOut"></div>
+  </div>
+
+  <div class="panel">
+    <h2>训练曲线（交叉熵损失）</h2>
+    <canvas id="lossCanvas" width="920" height="240"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>注意力热力图（因果掩码 · 抽样序列）</h2>
+    <canvas id="attnCanvas" width="920" height="300"></canvas>
+    <div class="meta" id="attnMeta"></div>
+  </div>
+
+  <div class="panel">
+    <h2>算法谱系（集大成 · 站在世界顶级成果之上）</h2>
+    <table>
+      <tr><th>模块</th><th>顶级来源</th><th>实现要点</th></tr>
+      <tr><td>Scaled Dot-Product Attention</td><td>Vaswani et al. 2017, "Attention Is All You Need"</td><td>QKᵀ/√dₖ + 因果掩码 + 稳定 softmax</td></tr>
+      <tr><td>Pre-LayerNorm</td><td>Child et al. 2019 / GPT-2 实践</td><td>LN 在残差分支前，训练更稳</td></tr>
+      <tr><td>LayerNorm</td><td>Ba, Kiros, Hinton 2016</td><td>逐行均值/方差归一，逆推有闭式</td></tr>
+      <tr><td>GELU 激活</td><td>Hendrycks & Gimpel 2016</td><td>精确 erf 近似，逐元素逆推</td></tr>
+      <tr><td>Adam 优化器</td><td>Kingma & Ba 2015</td><td>一阶/二阶矩偏差校正</td></tr>
+      <tr><td>Xavier/Glorot 初始化</td><td>Glorot & Bengio 2010</td><td>√(2/(fan_in+fan_out))</td></tr>
+      <tr><td>梯度校验</td><td>《CS231n》数值梯度法</td><td>中心差分 vs 解析梯度，maxRelErr&lt;1e-3</td></tr>
+    </table>
+  </div>
+</div>
+
+<script>
+// ==LIB START==
+"use strict";
+/*
+ * stellar-forge — 世界顶级 Transformer 锻造厂（零重写 / 集大成）
+ * 本库复用并忠实实现以下顶级算法原典，未从零造轮子：
+ *   - Scaled Dot-Product Attention & Transformer: Vaswani et al., 2017 (arXiv:1706.03762)
+ *   - Pre-LayerNorm 残差结构: Child et al., 2019 (arXiv:1904.10509) / GPT-2 工程实践
+ *   - Layer Normalization: Ba, Kiros, Hinton, 2016 (arXiv:1607.06450)
+ *   - GELU: Hendrycks & Gimpel, 2016 (arXiv:1606.08415)
+ *   - Adam: Kingma & Ba, 2015 (arXiv:1412.6980)
+ *   - Xavier/Glorot 初始化: Glorot & Bengio, 2010 (AISTATS)
+ * 验证哲学（forge 系列）：每条算法至少有 1 条可被独立实现交叉验证的硬不变量。
+ */
+
+// ---------- 可复现随机源（mulberry32，确定性不变性） ----------
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};}
+function randn(rng){let u=0,v=0;while(u===0)u=rng();while(v===0)v=rng();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+
+// ---------- 张量（2D 数组 [r][c]，行用 Float64Array 保双精度） ----------
+function Z(r,c){const m=new Array(r);for(let i=0;i<r;i++)m[i]=new Float64Array(c);return m;}
+function clone(m){const r=m.length,c=m[0].length,o=Z(r,c);for(let i=0;i<r;i++)for(let j=0;j<c;j++)o[i][j]=m[i][j];return o;}
+function T(m){const r=m.length,c=m[0].length,o=Z(c,r);for(let i=0;i<r;i++)for(let j=0;j<c;j++)o[j][i]=m[i][j];return o;}
+function mm(A,B){const r=A.length,a=A[0].length,b=B[0].length,o=Z(r,b);for(let i=0;i<r;i++){const Ai=A[i],oi=o[i];for(let k=0;k<a;k++){const Aik=Ai[k];if(Aik===0)continue;const Bk=B[k];for(let j=0;j<b;j++)oi[j]+=Aik*Bk[j];}}return o;}
+function linear(x,W,b){const y=mm(x,W);const r=y.length,c=y[0].length,o=Z(r,c);for(let i=0;i<r;i++)for(let j=0;j<c;j++)o[i][j]=y[i][j]+b[0][j];return o;}
+
+// ---------- 稳定 softmax（logsumexp，防溢出不变量） ----------
+function softmaxRows(M){
+  const r=M.length,c=M[0].length,o=Z(r,c);
+  for(let i=0;i<r;i++){
+    const Mi=M[i];let mx=-Infinity;for(let j=0;j<c;j++)if(Mi[j]>mx)mx=Mi[j];
+    let s=0;const e=new Float64Array(c);
+    for(let j=0;j<c;j++){e[j]=Math.exp(Mi[j]-mx);s+=e[j];}
+    const inv=1/s,oi=o[i];for(let j=0;j<c;j++)oi[j]=e[j]*inv;
+  }
+  return o;
+}
+function softmaxRowsBwd(dP,P){
+  const r=dP.length,c=dP[0].length,o=Z(r,c);
+  for(let i=0;i<r;i++){
+    const dPi=dP[i],Pi=P[i],oi=o[i];let ss=0;for(let k=0;k<c;k++)ss+=dPi[k]*Pi[k];
+    for(let j=0;j<c;j++)oi[j]=dPi[j]*Pi[j]-Pi[j]*ss;
+  }
+  return o;
+}
+
+// ---------- GELU（精确式 + 逆推） ----------
+const SQRT2OVERPI=Math.sqrt(2/Math.PI);
+function gelu(x){const u=SQRT2OVERPI*(x+0.044715*x*x*x);return 0.5*x*(1+Math.tanh(u));}
+function geluBwd(x,dy){const u=SQRT2OVERPI*(x+0.044715*x*x*x);const up=SQRT2OVERPI*(1+3*0.044715*x*x);const t=Math.tanh(u);return dy*(0.5*(1+t)+0.5*x*(1-t*t)*up);}
+
+// ---------- LayerNorm（逐行归一 + 逆推闭式） ----------
+function layerNorm(x,g,b,eps){
+  const r=x.length,d=x[0].length,o=Z(r,d);
+  const mean=new Float64Array(r),std=new Float64Array(r);
+  for(let i=0;i<r;i++){
+    const xi=x[i];let m=0;for(let j=0;j<d;j++)m+=xi[j];m/=d;
+    let v=0;for(let j=0;j<d;j++){const dd=xi[j]-m;v+=dd*dd;}v/=d;
+    const s=Math.sqrt(v+eps);mean[i]=m;std[i]=s;
+    const oi=o[i];for(let j=0;j<d;j++)oi[j]=(xi[j]-m)/s*g[0][j]+b[0][j];
+  }
+  return {out:o,mean,std,g,b,eps,x};
+}
+function layerNormBwd(dy,cache){
+  const {x,mean,std,g,eps}=cache;const r=x.length,d=x[0].length;
+  const dx=Z(r,d),dg=Z(1,d),db=Z(1,d);
+  for(let i=0;i<r;i++){
+    const xi=x[i],dyi=dy[i],s=std[i],m=mean[i];
+    const xiC=new Float64Array(d),dnorm=new Float64Array(d);
+    let dvar=0;
+    for(let j=0;j<d;j++){const dn=dyi[j]*g[0][j];dnorm[j]=dn;xiC[j]=xi[j]-m;dvar+=dn*xiC[j]*(-0.5)*Math.pow(s,-3);}
+    let dmean=0;for(let j=0;j<d;j++)dmean+=-dnorm[j]/s;
+    const dxi=dx[i];
+    for(let j=0;j<d;j++){
+      dxi[j]=dnorm[j]/s + dvar*(2/d)*xiC[j] + dmean/d;
+      dg[0][j]+=dyi[j]*xiC[j]/s; db[0][j]+=dyi[j];
+    }
+  }
+  return {dx,dg,db};
+}
+
+// ---------- 线性层逆推 ----------
+function linearBwd(dy,x,W){
+  const S=dy.length,O=dy[0].length,I=W.length;
+  const dW=Z(I,O),db=Z(1,O),dx=Z(S,I);
+  for(let i=0;i<S;i++){
+    const dyi=dy[i],xi=x[i],dxi=dx[i];
+    for(let k=0;k<I;k++){
+      const xik=xi[k],dWk=dW[k],Wk=W[k];
+      for(let o=0;o<O;o++){const d=dyi[o];dWk[o]+=xik*d;dxi[k]+=d*Wk[o];}
+    }
+    const dbi=db[0];for(let o=0;o<O;o++)dbi[o]+=dyi[o];
+  }
+  return {dx,dW,db};
+}
+
+// ---------- 结构遍历（用于克隆 / 清零 / 累加） ----------
+function isTensor(x){return Array.isArray(x)&&x.length>0&&(x[0] instanceof Float64Array);}
+function mapStruct(st,fn){if(isTensor(st))return fn(st);if(Array.isArray(st))return st.map(e=>mapStruct(e,fn));const o={};for(const k in st)if(st.hasOwnProperty(k))o[k]=mapStruct(st[k],fn);return o;}
+function cloneStruct(st){return mapStruct(st,t=>clone(t));}
+function zeroStruct(st){return mapStruct(st,t=>Z(t.length,t[0].length));}
+function zeroStructInPlace(st){if(isTensor(st)){for(let i=0;i<st.length;i++)for(let j=0;j<st[0].length;j++)st[i][j]=0;return;}if(Array.isArray(st)){for(const e of st)zeroStructInPlace(e);return;}for(const k in st)if(st.hasOwnProperty(k))zeroStructInPlace(st[k]);}
+function addStruct(dst,src){if(isTensor(dst)){const s=src;for(let i=0;i<dst.length;i++)for(let j=0;j<dst[0].length;j++)dst[i][j]+=s[i][j];return;}if(Array.isArray(dst)){for(let i=0;i<dst.length;i++)addStruct(dst[i],src[i]);return;}for(const k in dst)if(dst.hasOwnProperty(k))addStruct(dst[k],src[k]);}
+
+function paramTensors(P){
+  const t=[P.tokenEmb,P.posEmb];
+  for(const L of P.layers)t.push(L.Wq,L.bq,L.Wk,L.bk,L.Wv,L.bv,L.Wo,L.bo,L.ln1g,L.ln1b,L.W1,L.b1,L.W2,L.b2,L.ln2g,L.ln2b);
+  t.push(P.lnfg,P.lnfb,P.Wout,P.bout);
+  return t;
+}
+
+// ---------- 模型构建 ----------
+function buildModel(cfg,rng){
+  const d=cfg.d,h=cfg.heads,dh=d/h,V=cfg.V,S=cfg.S,dff=cfg.dff;
+  const xavier=(ri,ro)=>{const s=Math.sqrt(2/(ri+ro));const m=Z(ri,ro);for(let i=0;i<ri;i++)for(let j=0;j<ro;j++)m[i][j]=randn(rng)*s;return m;};
+  const ones1=c=>{const m=Z(1,c);for(let j=0;j<c;j++)m[0][j]=1;return m;};
+  const zeros1=c=>Z(1,c);
+  const P={tokenEmb:xavier(V,d),posEmb:xavier(S,d),layers:[],lnfg:ones1(d),lnfb:zeros1(d),Wout:xavier(d,V),bout:zeros1(V)};
+  for(let l=0;l<cfg.layers;l++){
+    P.layers.push({
+      Wq:xavier(d,d),bq:zeros1(d),Wk:xavier(d,d),bk:zeros1(d),Wv:xavier(d,d),bv:zeros1(d),
+      Wo:xavier(d,d),bo:zeros1(d),
+      ln1g:ones1(d),ln1b:zeros1(d),
+      W1:xavier(d,dff),b1:zeros1(dff),W2:xavier(dff,d),b2:zeros1(d),
+      ln2g:ones1(d),ln2b:zeros1(d)
+    });
+  }
+  const G=zeroStruct(P), adamM=zeroStruct(P), adamV=zeroStruct(P);
+  return {P,G,adamM,adamV,eps:1e-5,cfg,t:0};
+}
+
+// ---------- 嵌入 ----------
+function embed(tokens,P,cfg){
+  const S=tokens.length,d=P.tokenEmb[0].length,x=Z(S,d);
+  for(let t=0;t<S;t++){const te=P.tokenEmb[tokens[t]],pe=P.posEmb[t],xt=x[t];for(let j=0;j<d;j++)xt[j]=te[j]+pe[j];}
+  return x;
+}
+
+// ---------- Transformer 单层（Pre-LN 注意力 + Pre-LN FFN） ----------
+function layerForward(x,L,cfg,eps){
+  const S=x.length,d=x[0].length,h=cfg.heads,dh=d/h;
+  const ln1=layerNorm(x,L.ln1g,L.ln1b,eps),a=ln1.out;
+  const Q=linear(a,L.Wq,L.bq),K=linear(a,L.Wk,L.bk),V=linear(a,L.Wv,L.bv);
+  const ctx=Z(S,d);
+  const Pheads=[],QhA=[],KhA=[],VhA=[];
+  for(let hd=0;hd<h;hd++){
+    const qh=Z(S,dh),kh=Z(S,dh),vh=Z(S,dh);
+    for(let i=0;i<S;i++)for(let j=0;j<dh;j++){qh[i][j]=Q[i][hd*dh+j];kh[i][j]=K[i][hd*dh+j];vh[i][j]=V[i][hd*dh+j];}
+    const sc=Z(S,S),inv=1/Math.sqrt(dh);
+    for(let i=0;i<S;i++)for(let j=0;j<S;j++){let s=0;for(let k=0;k<dh;k++)s+=qh[i][k]*kh[j][k];sc[i][j]=s*inv;if(j>i)sc[i][j]=-Infinity;}
+    const Pm=softmaxRows(sc),ch=Z(S,dh);
+    for(let i=0;i<S;i++)for(let k=0;k<dh;k++){let s=0;for(let j=0;j<S;j++)s+=Pm[i][j]*vh[j][k];ch[i][k]=s;}
+    Pheads.push(Pm);QhA.push(qh);KhA.push(kh);VhA.push(vh);
+    for(let i=0;i<S;i++)for(let j=0;j<dh;j++)ctx[i][hd*dh+j]=ch[i][j];
+  }
+  const attnOut=linear(ctx,L.Wo,L.bo);
+  const y1=Z(S,d);for(let i=0;i<S;i++)for(let j=0;j<d;j++)y1[i][j]=x[i][j]+attnOut[i][j];
+  const ln2=layerNorm(y1,L.ln2g,L.ln2b,eps),b=ln2.out;
+  const h1=linear(b,L.W1,L.b1),a1=Z(S,cfg.dff);
+  for(let i=0;i<S;i++)for(let j=0;j<cfg.dff;j++)a1[i][j]=gelu(h1[i][j]);
+  const h2=linear(a1,L.W2,L.b2);
+  const y=Z(S,d);for(let i=0;i<S;i++)for(let j=0;j<d;j++)y[i][j]=y1[i][j]+h2[i][j];
+  return {y,cache:{x,ln1,Q,K,V,ctx,attnOut,Pheads,QhA,KhA,VhA,ln2,b,h1,a1,h2}};
+}
+function layerBackward(dy,L,cache,cfg){
+  const {x,ln1,Q,K,V,ctx,attnOut,Pheads,QhA,KhA,VhA,ln2,b,h1,a1}=cache;
+  const S=x.length,d=x[0].length,h=cfg.heads,dh=d/h;
+  // FFN 逆推
+  const linH2=linearBwd(dy,a1,L.W2),dA1=linH2.dx;
+  const dH1=Z(S,cfg.dff);for(let i=0;i<S;i++)for(let j=0;j<cfg.dff;j++)dH1[i][j]=geluBwd(h1[i][j],dA1[i][j]);
+  const linH1=linearBwd(dH1,b,L.W1),dB=linH1.dx;
+  const ln2b=layerNormBwd(dB,ln2);
+  const dy1=Z(S,d);for(let i=0;i<S;i++)for(let j=0;j<d;j++)dy1[i][j]=dy[i][j]+ln2b.dx[i][j];
+  // 注意力逆推
+  const linAttn=linearBwd(dy1,ctx,L.Wo),dCtx=linAttn.dx;
+  const dQ=Z(S,d),dK=Z(S,d),dV=Z(S,d);
+  for(let hd=0;hd<h;hd++){
+    const Pm=Pheads[hd],vh=VhA[hd],qh=QhA[hd],kh=KhA[hd];
+    const dCtx_h=Z(S,dh);for(let i=0;i<S;i++)for(let j=0;j<dh;j++)dCtx_h[i][j]=dCtx[i][hd*dh+j];
+    const dVh=mm(T(Pm),dCtx_h);
+    const dPm=mm(dCtx_h,T(vh));
+    const dSc=softmaxRowsBwd(dPm,Pm);const inv=1/Math.sqrt(dh);
+    for(let i=0;i<S;i++)for(let j=0;j<S;j++){if(j>i)dSc[i][j]=0;dSc[i][j]*=inv;}
+    const dQh=mm(dSc,kh),dKh=mm(T(dSc),qh);
+    for(let i=0;i<S;i++)for(let j=0;j<dh;j++){dQ[i][hd*dh+j]+=dQh[i][j];dK[i][hd*dh+j]+=dKh[i][j];dV[i][hd*dh+j]+=dVh[i][j];}
+  }
+  const linQ=linearBwd(dQ,ln1.out,L.Wq),linK=linearBwd(dK,ln1.out,L.Wk),linV=linearBwd(dV,ln1.out,L.Wv);
+  const da=Z(S,d);for(let i=0;i<S;i++)for(let j=0;j<d;j++)da[i][j]=linQ.dx[i][j]+linK.dx[i][j]+linV.dx[i][j];
+  const ln1b=layerNormBwd(da,ln1);
+  const dx=Z(S,d);for(let i=0;i<S;i++)for(let j=0;j<d;j++)dx[i][j]=dy1[i][j]+ln1b.dx[i][j];
+  const grads={Wq:linQ.dW,bq:linQ.db,Wk:linK.dW,bk:linK.db,Wv:linV.dW,bv:linV.db,Wo:linAttn.dW,bo:linAttn.db,
+    ln1g:ln1b.dg,ln1b:ln1b.db,W1:linH1.dW,b1:linH1.db,W2:linH2.dW,b2:linH2.db,ln2g:ln2b.dg,ln2b:ln2b.db};
+  return {grads,dx};
+}
+
+// ---------- 输出头 + 损失 ----------
+function finalForward(z,P,cfg,eps){const lnf=layerNorm(z,P.lnfg,P.lnfb,eps),f=lnf.out;return {logits:linear(f,P.Wout,P.bout),lnf};}
+function lossForward(logits,tokens){
+  const S=tokens.length,V=logits[0].length,Psm=softmaxRows(logits);let loss=0;
+  for(let t=0;t<S-1;t++)loss+=-Math.log(Math.max(Psm[t][tokens[t+1]],1e-12));
+  loss/=(S-1);return {loss,Psm};
+}
+function lossBackward(dLoss,Psm,tokens){
+  const S=tokens.length,V=Psm[0].length,dLogits=Z(S,V),inv=dLoss/(S-1);
+  for(let t=0;t<S-1;t++){const y=tokens[t+1];for(let k=0;k<V;k++)dLogits[t][k]=inv*(Psm[t][k]-(k===y?1:0));}
+  return dLogits;
+}
+
+// ---------- 全模型前向 / 逆推 ----------
+function forward(tokens,model){
+  const P=model.P,cfg=model.cfg;
+  const x=embed(tokens,P,cfg);
+  const layerCaches=[];let h=x;
+  for(const L of P.layers){const r=layerForward(h,L,cfg,model.eps);layerCaches.push(r.cache);h=r.y;}
+  const fin=finalForward(h,P,cfg,model.eps);
+  const lf=lossForward(fin.logits,tokens);
+  return {loss:lf.loss,logits:fin.logits,Psm:lf.Psm,cache:{tokens,x,layerCaches,fin}};
+}
+function modelBackward(fwd,model){
+  zeroStructInPlace(model.G);
+  const P=model.P,G=model.G,cfg=model.cfg,tokens=fwd.cache.tokens;
+  const dLogits=lossBackward(1.0,fwd.Psm,tokens);
+  const linFin=linearBwd(dLogits,fwd.cache.fin.lnf.out,P.Wout);
+  const lnfB=layerNormBwd(linFin.dx,fwd.cache.fin.lnf);
+  addStruct(G.Wout,linFin.dW);addStruct(G.bout,linFin.db);
+  addStruct(G.lnfg,lnfB.dg);addStruct(G.lnfb,lnfB.db);
+  let dz=lnfB.dx;
+  for(let li=P.layers.length-1;li>=0;li--){
+    const L=P.layers[li],LC=fwd.cache.layerCaches[li];
+    const lb=layerBackward(dz,L,LC,cfg);
+    addStruct(G.layers[li],lb.grads);
+    dz=lb.dx;
+  }
+  const d=P.tokenEmb[0].length,dx=dz;
+  for(let t=0;t<tokens.length;t++){const dte=G.tokenEmb[tokens[t]],dpe=G.posEmb[t],dxt=dx[t];for(let j=0;j<d;j++){dte[j]+=dxt[j];dpe[j]+=dxt[j];}}
+  return G;
+}
+
+// ---------- Adam（带偏差校正） ----------
+function adamStep(model,lr){
+  const P=model.P,G=model.G,Ms=model.adamM,Vs=model.adamV;
+  const b1=0.9,b2=0.999,eps=1e-8,t=model.t;
+  const Ps=paramTensors(P),Gs=paramTensors(G),MsA=paramTensors(Ms),VsA=paramTensors(Vs);
+  for(let n=0;n<Ps.length;n++){
+    const m=Ps[n],g=Gs[n],mm=MsA[n],vv=VsA[n];
+    for(let i=0;i<m.length;i++)for(let j=0;j<m[0].length;j++){
+      mm[i][j]=b1*mm[i][j]+(1-b1)*g[i][j];
+      vv[i][j]=b2*vv[i][j]+(1-b2)*g[i][j]*g[i][j];
+      const mh=mm[i][j]/(1-Math.pow(b1,t)),vh=vv[i][j]/(1-Math.pow(b2,t));
+      m[i][j]-=lr*mh/(Math.sqrt(vh)+eps);
+    }
+  }
+}
+function trainStep(model,tokens,lr){
+  model.t++;
+  const fwd=forward(tokens,model);
+  modelBackward(fwd,model);
+  adamStep(model,lr);
+  return fwd.loss;
+}
+
+// ---------- 数据：+1 确定性序列（next-token = (x+1)%V） ----------
+function makePlusOneSeq(cfg,rng){
+  const S=cfg.S,V=cfg.V;const seq=new Array(S);
+  let v=Math.floor(rng()*V);for(let t=0;t<S;t++){seq[t]=v;v=(v+1)%V;}
+  return seq;
+}
+function makePlusOneData(cfg,rng,n){const out=[];for(let i=0;i<n;i++)out.push(makePlusOneSeq(cfg,rng));return out;}
+
+// ---------- 8 项硬不变量自检 ----------
+function gradCheck(cfg){
+  const rng=mulberry32(12345),model=buildModel(cfg,rng),tokens=makePlusOneSeq(cfg,rng);
+  const fwd=forward(tokens,model);modelBackward(fwd,model);
+  const Ps=paramTensors(model.P),A=paramTensors(model.G);
+  let maxRel=0;const eps=1e-5;
+  for(let n=0;n<Ps.length;n++){
+    const Tp=Ps[n],Ta=A[n];
+    for(let i=0;i<Tp.length;i++)for(let j=0;j<Tp[0].length;j++){
+      const orig=Tp[i][j];
+      Tp[i][j]=orig+eps;const lp=forward(tokens,model).loss;
+      Tp[i][j]=orig-eps;const lm=forward(tokens,model).loss;
+      Tp[i][j]=orig;
+      const num=(lp-lm)/(2*eps),den=Math.max(1e-8,Math.abs(Ta[i][j]));
+      const rel=Math.abs(num-Ta[i][j])/den;if(rel>maxRel)maxRel=rel;
+    }
+  }
+  return {maxRel,pass:maxRel<1e-3,detail:'maxRelErr='+maxRel.toExponential(2)};
+}
+function testSoftmaxStability(){
+  const M=[[1e6,1e6+1,1e6-1]];const P=softmaxRows(M);
+  let s=0,finite=true;for(let j=0;j<P[0].length;j++){s+=P[0][j];if(!isFinite(P[0][j]))finite=false;}
+  return {pass:finite&&Math.abs(s-1)<1e-9,detail:'sum='+s.toFixed(12)};
+}
+function testLayerNormInvariant(){
+  const rng=mulberry32(3),x=Z(5,4);for(let i=0;i<5;i++)for(let j=0;j<4;j++)x[i][j]=randn(rng);
+  const g=Z(1,4),b=Z(1,4);for(let j=0;j<4;j++){g[0][j]=1;b[0][j]=0;}
+  const res=layerNorm(x,g,b,0);let ok=true,maxd=0;
+  for(let i=0;i<5;i++){let m=0,v=0;for(let j=0;j<4;j++){m+=res.out[i][j];v+=(res.out[i][j])*(res.out[i][j]);}m/=4;v/=4;maxd=Math.max(maxd,Math.abs(m),Math.abs(v-1));if(Math.abs(m)>1e-9||Math.abs(v-1)>1e-9)ok=false;}
+  return {pass:ok,detail:'max|mean|/|var-1|='+maxd.toExponential(2)};
+}
+function testAttentionRowNorm(){
+  const cfg={V:5,d:8,heads:2,layers:1,S:5,dff:16},rng=mulberry32(11),model=buildModel(cfg,rng);
+  const x=Z(cfg.S,cfg.d);for(let i=0;i<cfg.S;i++)for(let j=0;j<cfg.d;j++)x[i][j]=randn(rng);
+  const r=layerForward(x,model.P.layers[0],cfg,model.eps);let ok=true;
+  for(const Pm of r.cache.Pheads)for(let i=0;i<cfg.S;i++){let s=0;for(let j=0;j<cfg.S;j++)s+=Pm[i][j];if(Math.abs(s-1)>1e-9)ok=false;}
+  return {pass:ok,detail:'每行权重和=1（softmax 不变性）'};
+}
+function testCausalMask(){
+  const cfg={V:5,d:8,heads:2,layers:1,S:5,dff:16},rng=mulberry32(11),model=buildModel(cfg,rng);
+  const x=Z(cfg.S,cfg.d);for(let i=0;i<cfg.S;i++)for(let j=0;j<cfg.d;j++)x[i][j]=randn(rng);
+  const r=layerForward(x,model.P.layers[0],cfg,model.eps);let ok=true;
+  for(const Pm of r.cache.Pheads)for(let i=0;i<cfg.S;i++)for(let j=0;j<cfg.S;j++)if(j>i&&Pm[i][j]!==0)ok=false;
+  return {pass:ok,detail:'j>i 处注意力恒为 0（因果性）'};
+}
+function testConvergence(){
+  const cfg={V:11,d:24,heads:4,layers:2,S:10,dff:48},rng=mulberry32(7),model=buildModel(cfg,rng);
+  const data=makePlusOneData(cfg,rng,16);
+  const avgLoss=seqs=>{let s=0;for(const t of seqs)s+=forward(t,model).loss;return s/seqs.length;};
+  const l0=avgLoss(data);
+  for(let step=0;step<800;step++){const tok=data[step%data.length];trainStep(model,tok,0.02);}
+  const l1=avgLoss(data);
+  return {pass:l1<l0*0.3,detail:'初损='+l0.toFixed(3)+' → 末损='+l1.toFixed(3)+' (×'+(l1/l0).toFixed(3)+')'};
+}
+function testReproducibility(){
+  const cfg={V:7,d:16,heads:2,layers:1,S:6,dff:32};
+  const m1=buildModel(cfg,mulberry32(42)),toks=makePlusOneSeq(cfg,mulberry32(99));
+  const l1=trainStep(m1,toks,0.01);
+  const m2=buildModel(cfg,mulberry32(42));
+  const l2=trainStep(m2,toks,0.01);
+  return {pass:l1===l2,detail:'两遍首步 loss 完全一致 = '+l1.toFixed(10)};
+}
+function testNoNaN(){
+  const cfg={V:9,d:20,heads:4,layers:2,S:8,dff:40},rng=mulberry32(5),model=buildModel(cfg,rng);
+  const data=makePlusOneData(cfg,rng,8);let last=0,finite=true;
+  for(let s=0;s<10;s++){last=trainStep(model,data[s%data.length],0.02);}
+  const Ps=paramTensors(model.P);for(const t of Ps)for(let i=0;i<t.length;i++)for(let j=0;j<t[0].length;j++)if(!isFinite(t[i][j]))finite=false;
+  return {pass:finite&&isFinite(last),detail:'末损='+last.toFixed(4)+' 参数全有限='+finite};
+}
+function runAllTests(){
+  const t0=Date.now();
+  const tests=[
+    {name:'① 梯度检验（解析 vs 数值梯度）',fn:()=>gradCheck({V:5,d:8,heads:2,layers:1,S:4,dff:16})},
+    {name:'② Softmax 数值稳定（logits=1e6）',fn:testSoftmaxStability},
+    {name:'③ LayerNorm 不变性（μ=0,σ²=1）',fn:testLayerNormInvariant},
+    {name:'④ 注意力行归一（softmax 不变性）',fn:testAttentionRowNorm},
+    {name:'⑤ 因果掩码（j>i 恒为 0）',fn:testCausalMask},
+    {name:'⑥ 训练收敛（+1 任务）',fn:testConvergence},
+    {name:'⑦ 可复现性（同种子一致）',fn:testReproducibility},
+    {name:'⑧ 端到端无 NaN',fn:testNoNaN}
+  ];
+  const results=[];
+  for(const t of tests){try{const r=t.fn();results.push({name:t.name,pass:!!r.pass,detail:r.detail||''});}catch(e){results.push({name:t.name,pass:false,detail:'ERROR: '+e.message});}}
+  const ms=Date.now()-t0;
+  if(typeof console!=='undefined'){
+    console.log('\n=== stellar-forge 自检套件 ===');
+    for(const r of results)console.log((r.pass?'✅':'❌')+' '+r.name+(r.detail?'  ['+r.detail+']':''));
+    const passN=results.filter(r=>r.pass).length;
+    console.log('结果: '+passN+'/'+results.length+' 通过 · 耗时 '+ms+'ms');
+  }
+  return {results,allPass:results.every(r=>r.pass),ms};
+}
+
+const SF={mulberry32,randn,Z,clone,T,mm,linear,softmaxRows,gelu,layerNorm,layerNormBwd,linearBwd,
+  buildModel,embed,layerForward,layerBackward,finalForward,lossForward,lossBackward,forward,modelBackward,
+  adamStep,trainStep,makePlusOneSeq,makePlusOneData,gradCheck,runAllTests};
+if(typeof module!=='undefined'&&module.exports){module.exports=SF;}
+// ==LIB END==
+
+// 浏览器交互层（headless Node 不执行此段）
+if(typeof document!=='undefined'){
+  const $=id=>document.getElementById(id);
+  $('btnTest').addEventListener('click',()=>{
+    $('btnTest').disabled=true;
+    const {results,allPass,ms}=runAllTests();
+    let html='<table><tr><th>不变量</th><th>结果</th><th>细节</th></tr>';
+    for(const r of results)html+='<tr><td>'+r.name+'</td><td class="'+(r.pass?'ok':'no')+'">'+(r.pass?'✅ 通过':'❌ 失败')+'</td><td class="meta">'+r.detail+'</td></tr>';
+    html+='</table><div class="meta" style="margin-top:10px">'+(allPass?'🏆 8/8 全绿':'⚠️ 存在失败项')+' · 耗时 '+ms+'ms</div>';
+    $('testOut').innerHTML=html;
+    $('btnTest').disabled=false;
+  });
+  $('btnTrain').addEventListener('click',()=>{
+    $('btnTrain').disabled=true;
+    const cfg={V:11,d:24,heads:4,layers:2,S:10,dff:48};
+    const rng=mulberry32(7),model=buildModel(cfg,rng),data=makePlusOneData(cfg,rng,16);
+    const losses=[];const N=400;
+    for(let s=0;s<N;s++)losses.push(trainStep(model,data[s%data.length],0.02));
+    // 损失曲线
+    const lc=$('lossCanvas'),ctx=lc.getContext('2d');ctx.clearRect(0,0,lc.width,lc.height);
+    const W=lc.width,H=lc.height,pad=28,maxL=Math.max(...losses),minL=0;
+    ctx.strokeStyle='#232c3f';ctx.beginPath();ctx.moveTo(pad,pad);ctx.lineTo(pad,H-pad);ctx.lineTo(W-pad,H-pad);ctx.stroke();
+    ctx.strokeStyle='#36d399';ctx.lineWidth=2;ctx.beginPath();
+    losses.forEach((l,i)=>{const x=pad+(W-2*pad)*i/(N-1);const y=H-pad-(H-2*pad)*(l-minL)/(maxL-minL||1);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+    ctx.stroke();
+    ctx.fillStyle='#93a1b5';ctx.font='12px sans-serif';ctx.fillText('loss',6,H/2);ctx.fillText('step 0→'+N,W-54,H-8);
+    ctx.fillText(maxL.toFixed(2),2,pad+4);ctx.fillText('0',18,H-pad+4);
+    // 注意力热力图（取一条序列、最后一层、第 0 头）
+    const toks=data[0];const fwd=forward(toks,model);
+    const lastCache=fwd.cache.layerCaches[fwd.cache.layerCaches.length-1];
+    const Pm=lastCache.Pheads[0];
+    const ac=$('attnCanvas'),c2=ac.getContext('2d');c2.clearRect(0,0,ac.width,ac.height);
+    const n=toks.length,cell=Math.min((ac.width-60)/n,(ac.height-60)/n);
+    for(let i=0;i<n;i++)for(let j=0;j<n;j++){
+      const v=Pm[i][j];c2.fillStyle='rgba(91,140,255,'+(v*1.0)+')';
+      c2.fillRect(40+j*cell,20+i*cell,cell-1,cell-1);
+    }
+    c2.fillStyle='#93a1b5';c2.font='11px sans-serif';
+    for(let i=0;i<n;i++){c2.fillText('t'+i,40+i*cell+2,16);c2.fillText('t'+i,12,24+i*cell+cell/2);}
+    $('attnMeta').textContent='序列 tokens=['+toks.join(',')+'] · 末损='+losses[N-1].toFixed(4)+' · 注意：因果掩码使 j>i 处恒为 0（深蓝=高权重）';
+    $('btnTrain').disabled=false;
+  });
+}
+</script>
+</body>
+</html>
